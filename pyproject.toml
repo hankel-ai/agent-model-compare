@@ -1,0 +1,12 @@
+[project]
+name = "agent-orchestrator"
+version = "0.1.0"
+description = "Multi-model agent orchestrator using Claude Code CLI"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+orchestrator = "src.cli:main"

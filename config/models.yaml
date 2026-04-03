@@ -1,0 +1,12 @@
+# Models recognized as Claude (use direct Anthropic API)
+claude_models:
+  - opus
+  - sonnet
+  - haiku
+
+# LiteLLM proxy for non-Claude models
+# Any model name not in claude_models is routed through LiteLLM.
+# Just use the name from your LiteLLM config: kimi-k2.5, gemini-flash, etc.
+litellm:
+  url: http://localhost:4000
+  key: ***REDACTED-LITELLM-KEY***

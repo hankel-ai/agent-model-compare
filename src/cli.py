@@ -1,0 +1,178 @@
+"""CLI entry point for the agent orchestrator."""
+
+import argparse
+import sys
+from pathlib import Path
+
+from rich.console import Console
+
+from .config import load_config
+from .launcher import PaneLauncher
+from .metrics import MetricsCollector
+from .monitor import WorkspaceMonitor
+from .report import save_report
+from .workspace import WorkspaceManager
+
+console = Console()
+
+
+def cmd_benchmark(args, config):
+    """Launch a benchmark run across multiple models."""
+    # Get task
+    if args.task_file:
+        task = Path(args.task_file).read_text()
+    elif args.task:
+        task = args.task
+    else:
+        console.print("[red]Error: provide --task or --task-file[/red]")
+        sys.exit(1)
+
+    models = [m.strip() for m in args.models.split(",")]
+    if len(models) < 1:
+        console.print("[red]Error: provide at least one model[/red]")
+        sys.exit(1)
+
+    # Create workspaces
+    ws = WorkspaceManager()
+    run_dir = ws.create_run(task=task, models=models, name=args.name)
+    console.print(f"\n[bold]Created run:[/bold] {run_dir.name}")
+    for model in models:
+        console.print(f"  {run_dir / f'sub-{model}'}")
+
+    # Launch panes
+    console.print(f"\n[bold]Launching {len(models)} Claude Code sessions...[/bold]")
+    launcher = PaneLauncher(config)
+    launcher.launch_subs(run_dir, models)
+
+    for model in models:
+        from .config import is_claude_model
+        route = "direct Anthropic API" if is_claude_model(model, config) else "via LiteLLM"
+        console.print(f"  [cyan]{model}[/cyan] ({route})")
+
+    # Monitor
+    console.print("")
+    monitor = WorkspaceMonitor(run_dir, models)
+    monitor.watch(interval=10)
+
+    # If all done, generate report
+    if monitor.all_done():
+        _generate_report(run_dir, models)
+
+
+def cmd_status(args, config):
+    """Show status of a running or completed benchmark."""
+    ws = WorkspaceManager()
+
+    if args.run:
+        run_dir = ws.find_run(args.run)
+        if not run_dir:
+            console.print(f"[red]Run not found: {args.run}[/red]")
+            sys.exit(1)
+    else:
+        # Show most recent run
+        runs = ws.list_runs()
+        if not runs:
+            console.print("[yellow]No runs found.[/yellow]")
+            return
+        run_dir = runs[0]
+
+    run_config = ws.load_run_config(run_dir)
+    models = run_config.get("models", [])
+
+    if not models:
+        console.print(f"[red]No model config found in {run_dir.name}[/red]")
+        return
+
+    monitor = WorkspaceMonitor(run_dir, models)
+
+    if args.watch:
+        monitor.watch(interval=5)
+    else:
+        # One-shot status display
+        console.print(monitor._build_table())
+
+        if monitor.all_done():
+            console.print(f"\n[green]All subs completed.[/green]")
+            console.print(f"Run [cyan]python -m src.cli report --run {run_dir.name}[/cyan] for the report.")
+
+
+def cmd_report(args, config):
+    """Generate comparison report for a completed run."""
+    ws = WorkspaceManager()
+    run_dir = ws.find_run(args.run)
+    if not run_dir:
+        console.print(f"[red]Run not found: {args.run}[/red]")
+        sys.exit(1)
+
+    run_config = ws.load_run_config(run_dir)
+    models = run_config.get("models", [])
+    _generate_report(run_dir, models)
+
+
+def _generate_report(run_dir: Path, models: list[str]):
+    """Collect metrics and generate the comparison report."""
+    collector = MetricsCollector()
+    metrics = [collector.collect(run_dir / f"sub-{m}", m) for m in models]
+
+    report_path = save_report(run_dir, metrics)
+    console.print(f"\n[bold green]Report saved:[/bold green] {report_path}")
+
+    # Print the report
+    console.print("")
+    console.print(report_path.read_text())
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Agent Orchestrator — benchmark AI models with identical tasks"
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # benchmark
+    bench = subparsers.add_parser("benchmark", help="Launch a benchmark run")
+    bench.add_argument("--task", type=str, help="Task description")
+    bench.add_argument("--task-file", type=str, help="Path to task description file")
+    bench.add_argument("--models", type=str, required=True, help="Comma-separated model names")
+    bench.add_argument("--name", type=str, help="Run name (optional)")
+
+    # status
+    status = subparsers.add_parser("status", help="Check status of a run")
+    status.add_argument("--run", type=str, help="Run name (partial match, default: latest)")
+    status.add_argument("--watch", "-w", action="store_true", help="Continuously watch status")
+
+    # report
+    report = subparsers.add_parser("report", help="Generate comparison report")
+    report.add_argument("--run", type=str, required=True, help="Run name (partial match)")
+
+    # list
+    subparsers.add_parser("list", help="List all runs")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    config = load_config()
+
+    if args.command == "benchmark":
+        cmd_benchmark(args, config)
+    elif args.command == "status":
+        cmd_status(args, config)
+    elif args.command == "report":
+        cmd_report(args, config)
+    elif args.command == "list":
+        ws = WorkspaceManager()
+        runs = ws.list_runs()
+        if not runs:
+            console.print("[yellow]No runs found.[/yellow]")
+        else:
+            for run_dir in runs:
+                rc = ws.load_run_config(run_dir)
+                models = ", ".join(rc.get("models", []))
+                task_preview = rc.get("task", "")[:60]
+                console.print(f"  [cyan]{run_dir.name}[/cyan]  models=[{models}]  task={task_preview}...")
+
+
+if __name__ == "__main__":
+    main()
