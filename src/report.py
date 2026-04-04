@@ -56,6 +56,21 @@ def generate_report(run_dir: Path, metrics: list[dict]) -> str:
     lines.append(row("Test Lines", "test_lines"))
     lines.append(row("Has Tests", "has_tests", lambda v: "yes" if v else "no"))
 
+    # Validation rows (only if validation was run)
+    if any(m.get("tests_passed") is not None or m.get("launch_ok") is not None for m in metrics):
+        def fmt_tests(v):
+            if v is None:
+                return "-"
+            return "PASS" if v else "**FAIL**"
+
+        def fmt_launch(v):
+            if v is None:
+                return "-"
+            return "OK" if v else "**CRASH**"
+
+        lines.append(row("Tests Pass", "tests_passed", fmt_tests))
+        lines.append(row("App Launches", "launch_ok", fmt_launch))
+
     lines.append(f"")
 
     # Per-model summaries
@@ -65,8 +80,32 @@ def generate_report(run_dir: Path, metrics: list[dict]) -> str:
     for m in metrics:
         lines.append(f"### {m['model']}")
         lines.append(f"")
+
+        # Validation results
+        if m.get("tests_passed") is not None or m.get("launch_ok") is not None:
+            lines.append("#### Validation")
+            lines.append("")
+            if m.get("tests_passed") is not None:
+                status = "PASSED" if m["tests_passed"] else "FAILED"
+                lines.append(f"**Tests:** {status}")
+                lines.append(f"```")
+                lines.append(m.get("tests_output", "").strip())
+                lines.append(f"```")
+                lines.append("")
+            if m.get("launch_ok") is not None:
+                status = "OK" if m["launch_ok"] else "FAILED"
+                lines.append(f"**App Launch:** {status}")
+                launch_out = m.get("launch_output", "").strip()
+                if launch_out:
+                    lines.append(f"```")
+                    lines.append(launch_out)
+                    lines.append(f"```")
+                lines.append("")
+
         summary = m.get("done_summary")
         if summary:
+            lines.append("#### Summary")
+            lines.append("")
             lines.append(summary)
         else:
             lines.append("*No DONE.md found — sub may not have completed.*")

@@ -30,12 +30,19 @@ class WorkspaceMonitor:
             elif progress_file.exists():
                 try:
                     progress = json.loads(progress_file.read_text())
-                    status[model] = {
-                        "status": "in_progress",
-                        "step": progress.get("step", "?"),
-                        "total": progress.get("total", "?"),
-                        "message": progress.get("message", ""),
-                    }
+                    prog_status = progress.get("status", "in_progress")
+                    if prog_status == "completed":
+                        status[model] = {
+                            "status": "completed",
+                            "message": progress.get("message", "Done"),
+                        }
+                    else:
+                        status[model] = {
+                            "status": "in_progress",
+                            "step": progress.get("step", "?"),
+                            "total": progress.get("total", "?"),
+                            "message": progress.get("message", ""),
+                        }
                 except (json.JSONDecodeError, OSError):
                     status[model] = {"status": "in_progress", "message": "reading progress..."}
             else:

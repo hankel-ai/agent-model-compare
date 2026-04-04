@@ -11,6 +11,7 @@ from .launcher import PaneLauncher
 from .metrics import MetricsCollector
 from .monitor import WorkspaceMonitor
 from .report import save_report
+from .validator import WorkspaceValidator
 from .workspace import WorkspaceManager
 
 console = Console()
@@ -110,9 +111,42 @@ def cmd_report(args, config):
 
 
 def _generate_report(run_dir: Path, models: list[str]):
-    """Collect metrics and generate the comparison report."""
+    """Collect metrics, validate workspaces, and generate the comparison report."""
     collector = MetricsCollector()
     metrics = [collector.collect(run_dir / f"sub-{m}", m) for m in models]
+
+    # Validate: run tests and try launching each sub's app
+    console.print("\n[bold]Validating sub outputs...[/bold]")
+    validator = WorkspaceValidator()
+    validations = []
+    for m in models:
+        console.print(f"  Validating [cyan]{m}[/cyan]...")
+        v = validator.validate(run_dir / f"sub-{m}", m)
+        validations.append(v)
+
+        # Print inline results
+        if v.get("tests_found"):
+            if v["tests_passed"]:
+                console.print(f"    Tests: [green]PASSED[/green]")
+            else:
+                console.print(f"    Tests: [red]FAILED[/red]")
+        else:
+            console.print(f"    Tests: [dim]none found[/dim]")
+
+        launch = v.get("launch_ok")
+        if launch is True:
+            console.print(f"    Launch: [green]OK[/green]")
+        elif launch is False:
+            console.print(f"    Launch: [red]FAILED[/red]")
+        else:
+            console.print(f"    Launch: [dim]skipped[/dim]")
+
+    # Merge validation results into metrics
+    for m, v in zip(metrics, validations):
+        m["tests_passed"] = v.get("tests_passed")
+        m["tests_output"] = v.get("tests_output", "")
+        m["launch_ok"] = v.get("launch_ok")
+        m["launch_output"] = v.get("launch_output", "")
 
     report_path = save_report(run_dir, metrics)
     console.print(f"\n[bold green]Report saved:[/bold green] {report_path}")

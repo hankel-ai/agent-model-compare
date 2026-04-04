@@ -57,10 +57,12 @@ def build_cmd_env_string(*, litellm_url: str | None = None, litellm_key: str | N
     for var in VERTEX_VARS + CLAUDE_SESSION_VARS:
         parts.append(f"set {var}=")
 
-    # Set LiteLLM proxy vars
+    # For LiteLLM models: use AUTH_TOKEN (not API_KEY) to avoid conflict
+    # Clear API_KEY so Claude Code doesn't see both
     if litellm_url:
         parts.append(f"set ANTHROPIC_BASE_URL={litellm_url}")
+        parts.append("set ANTHROPIC_API_KEY=")
     if litellm_key:
-        parts.append(f"set ANTHROPIC_API_KEY={litellm_key}")
+        parts.append(f"set ANTHROPIC_AUTH_TOKEN={litellm_key}")
 
     return parts
