@@ -16,7 +16,9 @@ class PaneLauncher:
         self.config = config
 
     def launch_subs(self, run_dir: Path, models: list[str]) -> None:
-        """Launch all subs as Windows Terminal split panes in a single command.
+        """Launch all subs as Windows Terminal split panes.
+
+        Uses sequential wt.exe calls for reliability.
 
         Layouts (orchestrator is always top-left):
           1 sub:  [orch  | sub1 ]
@@ -27,63 +29,60 @@ class PaneLauncher:
           3 subs: [orch  | sub1 ]   (2x2 grid)
                   [sub3  | sub2 ]
 
-          4 subs: [orch  | sub1 ]
-                  [sub4  | sub2 ]
-                  [      | sub3 ]
-        """
-        # Build one chained wt command for the entire layout
-        wt_parts = self._build_wt_command(run_dir, models)
-        cmd = " ".join(wt_parts)
-        subprocess.Popen(cmd, shell=True)
-
-    def _build_wt_command(self, run_dir: Path, models: list[str]) -> list[str]:
-        """Build a single wt.exe command that creates the full pane layout.
-
-        Uses \\; to chain split-pane and move-focus commands.
+          4+ subs: [orch  | sub1 ]
+                   [sub4  | sub2 ]
+                   [      | sub3 ]
         """
         n = len(models)
-        parts = ["wt.exe", "-w", "0"]
 
         if n == 1:
             # [orch | sub1]
-            parts += self._split_cmd("-V", models[0], run_dir)
+            self._wt_split("-V", models[0], run_dir)
 
         elif n == 2:
-            # Split right: [orch | sub1], focus=sub1
-            parts += self._split_cmd("-V", models[0], run_dir)
-            # Split sub1 down: [orch | sub1], focus=sub2
+            # Split right: [orch | sub1]
+            self._wt_split("-V", models[0], run_dir)
+            time.sleep(1)
+            # Split sub1 down: [orch | sub1]
             #                  [     | sub2]
-            parts += ["\\;"] + self._split_cmd("-H", models[1], run_dir)
+            self._wt_split("-H", models[1], run_dir)
 
         elif n == 3:
-            # Step 1: split down: [orch] / [sub1], focus=sub1 (bottom)
-            parts += self._split_cmd("-H", models[0], run_dir)
-            # Step 2: split sub1 right: [orch] / [sub1 | sub2], focus=sub2
-            parts += ["\\;"] + self._split_cmd("-V", models[1], run_dir)
+            # Step 1: split down: [orch] / [sub1], focus moves to sub1 (bottom)
+            self._wt_split("-H", models[0], run_dir)
+            time.sleep(1)
+            # Step 2: split sub1 right: [orch] / [sub1 | sub2], focus on sub2
+            self._wt_split("-V", models[1], run_dir)
+            time.sleep(1)
             # Step 3: move focus up to orch
-            parts += ["\\;", "move-focus", "--direction", "up"]
-            # Step 4: split orch right: [orch | sub3] / [sub1 | sub2], focus=sub3
-            parts += ["\\;"] + self._split_cmd("-V", models[2], run_dir)
+            self._wt_action("move-focus", "--direction", "up")
+            time.sleep(0.5)
+            # Step 4: split orch right: [orch | sub3] / [sub1 | sub2]
+            self._wt_split("-V", models[2], run_dir)
 
         else:
-            # 4+ subs: right column gets multiple, left column for overflow
-            # Start: split right for sub1
-            parts += self._split_cmd("-V", models[0], run_dir)
-            # Stack remaining in right column first
+            # 4+ subs: right column stacked
+            self._wt_split("-V", models[0], run_dir)
             for i in range(1, n):
-                parts += ["\\;"] + self._split_cmd("-H", models[i], run_dir)
+                time.sleep(1)
+                self._wt_split("-H", models[i], run_dir)
 
-        return parts
+    def _wt_action(self, *args: str) -> None:
+        """Run a single wt.exe action (e.g., move-focus)."""
+        cmd = ["wt.exe", "-w", "0"] + list(args)
+        subprocess.Popen(cmd)
 
-    def _split_cmd(self, direction: str, model: str, run_dir: Path) -> list[str]:
-        """Build the split-pane portion for one sub."""
+    def _wt_split(self, direction: str, model: str, run_dir: Path) -> None:
+        """Run a single wt.exe split-pane command."""
         sub_dir = run_dir / f"sub-{model}"
         pane_cmd = self._build_pane_cmd(model, sub_dir)
-        return [
+        cmd = [
+            "wt.exe", "-w", "0",
             "split-pane", direction, "--size", "0.5",
             "--title", f"sub-{model}",
-            "cmd", "/k", f'"{pane_cmd}"',
+            "cmd", "/k", pane_cmd,
         ]
+        subprocess.Popen(cmd)
 
     def _build_pane_cmd(self, model: str, workspace: Path) -> str:
         """Build the cmd.exe command string for a sub's pane."""
