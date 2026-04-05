@@ -96,10 +96,10 @@ class WorkspaceMonitor:
         console = Console()
         console.print(f"\n[bold]Monitoring[/bold] {self.run_dir.name}")
         if sys.platform == "win32":
-            pane_hint = "Switch panes with Alt+Arrow to interact with subs."
+            pane_hint = "Switch panes: Alt+Arrow"
         else:
-            pane_hint = "Switch tmux panes with Ctrl+B then arrow keys to interact with subs."
-        console.print(f"[dim]{pane_hint} Ctrl+C to stop monitoring.[/dim]\n")
+            pane_hint = "Navigation shortcuts shown in tmux status bar below"
+        console.print(f"[dim]{pane_hint}. Ctrl+C to stop monitoring.[/dim]\n")
 
         try:
             with Live(self._build_table(), console=console, refresh_per_second=0.2) as live:

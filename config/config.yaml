@@ -7,6 +7,11 @@ claude_models:
 # LiteLLM proxy for non-Claude models
 # Any model name not in claude_models is routed through LiteLLM.
 # Just use the name from your LiteLLM config: kimi-k2.5, gemini-flash, etc.
+# ANTHROPIC_AUTH_TOKEN defaults to LITELLM_MASTER_KEY from .env if not set here.
 litellm:
-  url: http://localhost:4000
-  key: ***REDACTED-LITELLM-KEY***
+  ANTHROPIC_BASE_URL: http://localhost:4000
+  ANTHROPIC_AUTH_TOKEN:
+
+env:
+  HTTPS_PROXY: http://localhost:9280
+  NODE_EXTRA_CA_CERTS: mitmproxy-ca.pem

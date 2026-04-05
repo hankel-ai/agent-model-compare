@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-from .config import get_litellm_config, is_claude_model
+from .config import get_extra_env, get_litellm_config, is_claude_model
 from .env import build_bash_env_string, build_cmd_env_string
 
 
@@ -93,7 +93,8 @@ class PaneLauncher:
             litellm_url = litellm.get("url")
             litellm_key = litellm.get("key")
 
-        env_parts = build_cmd_env_string(litellm_url=litellm_url, litellm_key=litellm_key)
+        extra_env = get_extra_env(self.config)
+        env_parts = build_cmd_env_string(litellm_url=litellm_url, litellm_key=litellm_key, extra_env=extra_env)
 
         lines = ["@echo off"]
         for part in env_parts:
@@ -124,13 +125,12 @@ class PaneLauncher:
     # ── tmux (Linux / macOS) ─────────────────────────────────────────────
 
     def _launch_tmux(self, run_dir: Path, models: list[str]) -> None:
-        """Launch subs as tmux split panes inside a new tmux session.
+        """Launch subs as tmux panes or windows inside a new tmux session.
 
-        Creates a tmux session named after the run, then splits panes
-        for each model. The first pane is the orchestrator (monitor),
-        and each sub gets its own pane running a bash start script.
+        1-3 models: split panes in a single window (monitor + agents visible).
+        4+ models: each agent gets its own tmux window (tab). Window 0 = monitor.
 
-        Layouts mirror the WT version:
+        Pane layouts (1-3 models):
           1 sub:  [orch  | sub1 ]
 
           2 subs: [orch  | sub1 ]
@@ -138,10 +138,6 @@ class PaneLauncher:
 
           3 subs: [orch  | sub1 ]   (2x2 grid)
                   [sub3  | sub2 ]
-
-          4+ subs: [orch  | sub1 ]
-                   [sub4  | sub2 ]
-                   [      | sub3 ]
         """
         for model in models:
             self._write_start_sh(run_dir, model)
@@ -149,37 +145,41 @@ class PaneLauncher:
         session = run_dir.name
         n = len(models)
 
-        # Create a new tmux session (detached). Pane 0 is the orchestrator.
+        # Create a new tmux session (detached). Window 0 is the orchestrator.
         subprocess.run(
             ["tmux", "new-session", "-d", "-s", session, "-x", "200", "-y", "50"],
             check=True,
         )
 
-        if n == 1:
-            self._tmux_split(session, "-h", models[0], run_dir)
-
-        elif n == 2:
-            # Split right for sub1
-            self._tmux_split(session, "-h", models[0], run_dir)
-            # Split sub1 pane down for sub2
-            self._tmux_split(session, "-v", models[1], run_dir, target_pane=1)
-
-        elif n == 3:
-            # Split down for sub1
-            self._tmux_split(session, "-v", models[0], run_dir)
-            # Split sub1 right for sub2
-            self._tmux_split(session, "-h", models[1], run_dir, target_pane=1)
-            # Select orchestrator pane (0), split right for sub3
-            self._tmux_split(session, "-h", models[2], run_dir, target_pane=0)
-
+        if n <= 3:
+            # Pane layout for small runs
+            if n == 1:
+                self._tmux_split(session, "-h", models[0], run_dir)
+            elif n == 2:
+                self._tmux_split(session, "-h", models[0], run_dir)
+                self._tmux_split(session, "-v", models[1], run_dir, target_pane=1)
+            elif n == 3:
+                self._tmux_split(session, "-v", models[0], run_dir)
+                self._tmux_split(session, "-h", models[1], run_dir, target_pane=1)
+                self._tmux_split(session, "-h", models[2], run_dir, target_pane=0)
         else:
-            # First sub goes right
-            self._tmux_split(session, "-h", models[0], run_dir)
-            for i in range(1, n):
-                # Stack remaining subs vertically in the right column
-                self._tmux_split(session, "-v", models[i], run_dir, target_pane=1)
+            # Window (tab) layout for 4+ models
+            for model in models:
+                script = run_dir / f"sub-{model}" / "_start.sh"
+                subprocess.run(
+                    ["tmux", "new-window", "-t", session, "-n", model, str(script)],
+                    check=True,
+                )
+            # Go back to window 0 (monitor)
+            subprocess.run(
+                ["tmux", "select-window", "-t", f"{session}:0"],
+                check=True,
+            )
 
-        # Run the status monitor in pane 0 (orchestrator pane)
+        # Configure status bar with shortcuts help
+        self._configure_tmux_status(session, n)
+
+        # Run the status monitor in window 0, pane 0
         project_root = run_dir.parent.parent
         monitor_cmd = f'cd "{project_root}" && python3 -m src.cli status --run {run_dir.name} -w'
         subprocess.run(
@@ -189,6 +189,43 @@ class PaneLauncher:
 
         # Attach to the session
         subprocess.run(["tmux", "attach-session", "-t", session])
+
+    def _configure_tmux_status(self, session: str, n: int) -> None:
+        """Set tmux status bar to show navigation shortcuts."""
+        if n <= 3:
+            shortcuts = "Alt+arrows:switch pane | ^B+z:zoom | ^C:stop monitor"
+        else:
+            shortcuts = "Alt+Left/Right:prev/next tab | ^B+z:zoom | ^C:stop monitor"
+
+        tmux_opts = [
+            ("status", "on"),
+            ("status-style", "bg=colour235,fg=colour248"),
+            ("status-left", f" [{session[:20]}] "),
+            ("status-left-length", "25"),
+            ("status-right", f" {shortcuts} "),
+            ("status-right-length", "80"),
+            ("window-status-current-style", "bg=colour39,fg=colour232,bold"),
+            ("window-status-format", " #I:#W "),
+            ("window-status-current-format", " #I:#W "),
+        ]
+        for opt, val in tmux_opts:
+            subprocess.run(
+                ["tmux", "set-option", "-t", session, opt, val],
+                check=True,
+            )
+
+        # Prefix-free keybindings: Alt+Arrow to navigate without ^B
+        keybinds = [
+            ("-n", "M-Left", "previous-window"),
+            ("-n", "M-Right", "next-window"),
+            ("-n", "M-Up", "select-pane -U"),
+            ("-n", "M-Down", "select-pane -D"),
+        ]
+        for flag, key, cmd in keybinds:
+            subprocess.run(
+                ["tmux", "bind-key", flag, "-T", "root", key, cmd],
+                check=True,
+            )
 
     def _write_start_sh(self, run_dir: Path, model: str) -> Path:
         """Write a _start.sh bash script for a sub."""
@@ -201,7 +238,8 @@ class PaneLauncher:
             litellm_url = litellm.get("url")
             litellm_key = litellm.get("key")
 
-        env_parts = build_bash_env_string(litellm_url=litellm_url, litellm_key=litellm_key)
+        extra_env = get_extra_env(self.config)
+        env_parts = build_bash_env_string(litellm_url=litellm_url, litellm_key=litellm_key, extra_env=extra_env)
 
         lines = ["#!/usr/bin/env bash", "set -e"]
         lines.extend(env_parts)

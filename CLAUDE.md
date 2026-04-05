@@ -14,8 +14,8 @@ Multi-model agent orchestrator that launches parallel Claude Code sessions in sp
 ```
 src/
   cli.py          - Entry point (argparse): benchmark, status, report commands
-  config.py       - Load config/models.yaml
-  env.py          - Env sanitization for subprocess launch (cmd.exe + bash)
+  config.py       - Load config/config.yaml
+  env.py          - Env configuration for subprocess launch (cmd.exe + bash)
   workspace.py    - Create run dirs + CLAUDE.md per sub, optional template copy
   launcher.py     - Launch split panes (WT on Windows, tmux on Linux/macOS)
   monitor.py      - Watch workspaces for progress.json + DONE.md
@@ -23,7 +23,7 @@ src/
   report.py       - Generate markdown comparison report
   validator.py    - Validate sub outputs (tests, launch check)
 config/
-  models.yaml     - Model registry + LiteLLM proxy config
+  config.yaml     - Model registry + LiteLLM proxy config
 workspaces/       - Runtime output, gitignored
 run.cmd           - Windows launcher script
 run.sh            - Linux/macOS launcher script
@@ -46,11 +46,13 @@ python -m src.cli report --run <run-name>
 
 ## Key Design Decisions
 - Each sub is a full interactive Claude Code session (not --print)
-- Cross-platform: Windows Terminal panes (Windows) / tmux panes (Linux/macOS)
+- Cross-platform: Windows Terminal panes (Windows) / tmux panes+windows (Linux/macOS)
+- tmux: 1-3 models use split panes, 4+ models use separate windows (tabs)
+- tmux status bar always shows navigation shortcuts
 - CLAUDE.md in each workspace gives the sub its task (auto-discovered by Claude Code)
 - `--template` copies a local folder into each sub as `template/`, CLAUDE.md instructs agents to use it
 - File-based progress tracking (progress.json, DONE.md)
-- Must clear CLAUDE_CODE_USE_VERTEX + ANTHROPIC_VERTEX_PROJECT_ID from subprocess env
+- Extra env vars for all agents configurable via `env:` section in config.yaml
 - Non-Claude models routed via ANTHROPIC_BASE_URL pointing to LiteLLM proxy
 - On Linux, launcher creates a named tmux session and attaches to it
 - Start scripts: `_start.cmd` (Windows) / `_start.sh` (Linux/macOS) per sub
