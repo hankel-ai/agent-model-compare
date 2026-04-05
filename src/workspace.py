@@ -1,6 +1,7 @@
 """Workspace management — create run directories and CLAUDE.md per sub."""
 
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,15 @@ CLAUDE_MD_TEMPLATE = """# Task
   - How to test it
   - Any issues or limitations
 - Do NOT modify or delete this CLAUDE.md file.
+{template_section}"""
+
+TEMPLATE_SECTION = """
+# Template Files
+
+A `template/` folder has been provided in this directory with starter files.
+Use these files as the foundation for your work — build on top of them rather
+than starting from scratch. The template contents are in the `template/`
+subdirectory.
 """
 
 
@@ -31,8 +41,20 @@ class WorkspaceManager:
     def __init__(self, base: Path = WORKSPACES_DIR):
         self.base = base
 
-    def create_run(self, task: str, models: list[str], name: str | None = None) -> Path:
+    def create_run(
+        self,
+        task: str,
+        models: list[str],
+        name: str | None = None,
+        template: Path | None = None,
+    ) -> Path:
         """Create a run directory with per-model subdirectories and CLAUDE.md files.
+
+        Args:
+            task: The task description.
+            models: List of model names.
+            name: Optional run name prefix.
+            template: Optional path to a local folder to copy into each sub workspace.
 
         Returns the run directory path.
         """
@@ -41,6 +63,10 @@ class WorkspaceManager:
         run_dir = self.base / f"run-{run_name}"
         run_dir.mkdir(parents=True)
 
+        # Validate template path if provided
+        if template and not template.is_dir():
+            raise FileNotFoundError(f"Template folder not found: {template}")
+
         # Save run config
         config = {
             "task": task,
@@ -48,13 +74,25 @@ class WorkspaceManager:
             "created": timestamp,
             "run_name": run_name,
         }
+        if template:
+            config["template"] = str(template)
         (run_dir / "config.json").write_text(json.dumps(config, indent=2))
 
         # Create per-model workspaces
         for model in models:
             sub_dir = run_dir / f"sub-{model}"
             sub_dir.mkdir()
-            claude_md = CLAUDE_MD_TEMPLATE.format(task=task)
+
+            # Copy template folder if provided
+            if template:
+                shutil.copytree(template, sub_dir / "template")
+                template_section = TEMPLATE_SECTION
+            else:
+                template_section = ""
+
+            claude_md = CLAUDE_MD_TEMPLATE.format(
+                task=task, template_section=template_section
+            )
             (sub_dir / "CLAUDE.md").write_text(claude_md)
 
         return run_dir

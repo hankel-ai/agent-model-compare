@@ -33,24 +33,34 @@ def cmd_benchmark(args, config):
         console.print("[red]Error: provide at least one model[/red]")
         sys.exit(1)
 
+    # Resolve template path
+    template = Path(args.template).resolve() if args.template else None
+
     # Create workspaces
     ws = WorkspaceManager()
-    run_dir = ws.create_run(task=task, models=models, name=args.name)
+    run_dir = ws.create_run(task=task, models=models, name=args.name, template=template)
     console.print(f"\n[bold]Created run:[/bold] {run_dir.name}")
+    if template:
+        console.print(f"[bold]Template:[/bold] {template}")
     for model in models:
         console.print(f"  {run_dir / f'sub-{model}'}")
 
     # Launch panes
     console.print(f"\n[bold]Launching {len(models)} Claude Code sessions...[/bold]")
     launcher = PaneLauncher(config)
-    launcher.launch_subs(run_dir, models)
+    monitor_handled = launcher.launch_subs(run_dir, models)
 
     for model in models:
         from .config import is_claude_model
         route = "direct Anthropic API" if is_claude_model(model, config) else "via LiteLLM"
         console.print(f"  [cyan]{model}[/cyan] ({route})")
 
-    # Monitor
+    if monitor_handled:
+        # tmux: monitor runs in pane 0, user returns here after detaching
+        console.print(f"\n[dim]Reattach: tmux attach -t {run_dir.name}[/dim]")
+        return
+
+    # Monitor (Windows — runs in the original terminal)
     console.print("")
     monitor = WorkspaceMonitor(run_dir, models)
     monitor.watch(interval=10)
@@ -168,6 +178,7 @@ def main():
     bench.add_argument("--task-file", type=str, help="Path to task description file")
     bench.add_argument("--models", type=str, required=True, help="Comma-separated model names")
     bench.add_argument("--name", type=str, help="Run name (optional)")
+    bench.add_argument("--template", type=str, help="Path to a local folder to copy into each sub workspace as starter files")
 
     # status
     status = subparsers.add_parser("status", help="Check status of a run")

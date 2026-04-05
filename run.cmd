@@ -2,7 +2,7 @@
 python list_models.py
 if "%~1"=="" (
 	echo.
-    echo run --task prompt --models model1,model2
+    echo run --task prompt --models model1,model2 [--template path\to\folder]
     exit /b 1
 )
 python -m src.cli benchmark %*

@@ -1,6 +1,7 @@
 """Monitor workspaces for progress and completion."""
 
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -94,7 +95,11 @@ class WorkspaceMonitor:
         """Display live status updates until all subs complete or user interrupts."""
         console = Console()
         console.print(f"\n[bold]Monitoring[/bold] {self.run_dir.name}")
-        console.print("[dim]Switch panes with Alt+Arrow to interact with subs. Ctrl+C to stop monitoring.[/dim]\n")
+        if sys.platform == "win32":
+            pane_hint = "Switch panes with Alt+Arrow to interact with subs."
+        else:
+            pane_hint = "Switch tmux panes with Ctrl+B then arrow keys to interact with subs."
+        console.print(f"[dim]{pane_hint} Ctrl+C to stop monitoring.[/dim]\n")
 
         try:
             with Live(self._build_table(), console=console, refresh_per_second=0.2) as live:

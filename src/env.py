@@ -66,3 +66,24 @@ def build_cmd_env_string(*, litellm_url: str | None = None, litellm_key: str | N
         parts.append(f"set ANTHROPIC_AUTH_TOKEN={litellm_key}")
 
     return parts
+
+
+def build_bash_env_string(*, litellm_url: str | None = None, litellm_key: str | None = None) -> list[str]:
+    """Build bash 'export/unset' commands to sanitize env inside a tmux pane.
+
+    Returns a list of shell commands.
+    """
+    parts = []
+
+    # Clear Vertex and session vars
+    for var in VERTEX_VARS + CLAUDE_SESSION_VARS:
+        parts.append(f"unset {var}")
+
+    # For LiteLLM models: use AUTH_TOKEN (not API_KEY) to avoid conflict
+    if litellm_url:
+        parts.append(f"export ANTHROPIC_BASE_URL={litellm_url}")
+        parts.append("unset ANTHROPIC_API_KEY")
+    if litellm_key:
+        parts.append(f"export ANTHROPIC_AUTH_TOKEN={litellm_key}")
+
+    return parts
