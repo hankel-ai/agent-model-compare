@@ -157,11 +157,21 @@ class PaneLauncher:
                 self._tmux_split(session, "-h", models[0], run_dir)
             elif n == 2:
                 self._tmux_split(session, "-h", models[0], run_dir)
+                time.sleep(0.2)
                 self._tmux_split(session, "-v", models[1], run_dir, target_pane=1)
             elif n == 3:
                 self._tmux_split(session, "-v", models[0], run_dir)
+                time.sleep(0.2)
                 self._tmux_split(session, "-h", models[1], run_dir, target_pane=1)
+                time.sleep(0.2)
                 self._tmux_split(session, "-h", models[2], run_dir, target_pane=0)
+            # Lock the panes into a tiled grid so they don't drift when sub
+            # TUIs start up and trigger resize events.
+            time.sleep(0.2)
+            subprocess.run(
+                ["tmux", "select-layout", "-t", f"{session}:0", "tiled"],
+                check=True,
+            )
         else:
             # Window (tab) layout for 4+ models
             for model in models:
@@ -193,9 +203,9 @@ class PaneLauncher:
     def _configure_tmux_status(self, session: str, n: int) -> None:
         """Set tmux status bar to show navigation shortcuts."""
         if n <= 3:
-            shortcuts = "Alt+arrows:switch pane | ^B+z:zoom | ^C:stop monitor"
+            shortcuts = "Alt+arrows or click:switch pane | ^B+z:zoom | ^C:stop monitor"
         else:
-            shortcuts = "Alt+Left/Right:prev/next tab | ^B+z:zoom | ^C:stop monitor"
+            shortcuts = "Alt+Left/Right or click:prev/next tab | ^B+z:zoom | ^C:stop monitor"
 
         tmux_opts = [
             ("status", "on"),
@@ -203,10 +213,16 @@ class PaneLauncher:
             ("status-left", f" [{session[:20]}] "),
             ("status-left-length", "25"),
             ("status-right", f" {shortcuts} "),
-            ("status-right-length", "80"),
+            ("status-right-length", "90"),
             ("window-status-current-style", "bg=colour39,fg=colour232,bold"),
             ("window-status-format", " #I:#W "),
             ("window-status-current-format", " #I:#W "),
+            # Click-to-focus panes / click-on-status to switch windows.
+            ("mouse", "on"),
+            # Each pane uses its full size when active rather than being
+            # constrained by other clients — fewer redraw glitches when the
+            # monitor table refreshes alongside the sub TUIs.
+            ("aggressive-resize", "on"),
         ]
         for opt, val in tmux_opts:
             subprocess.run(
@@ -214,16 +230,25 @@ class PaneLauncher:
                 check=True,
             )
 
-        # Prefix-free keybindings: Alt+Arrow to navigate without ^B
-        keybinds = [
-            ("-n", "M-Left", "previous-window"),
-            ("-n", "M-Right", "next-window"),
-            ("-n", "M-Up", "select-pane -U"),
-            ("-n", "M-Down", "select-pane -D"),
-        ]
-        for flag, key, cmd in keybinds:
+        # Prefix-free keybindings: Alt+Arrow to navigate without ^B.
+        # In pane mode (n<=3) all four arrows move between panes.
+        # In window mode (n>=4) Left/Right step through tabs; Up/Down are
+        # left unbound since each tab is a single full-window pane.
+        if n <= 3:
+            keybinds = [
+                ("M-Left", "select-pane -L"),
+                ("M-Right", "select-pane -R"),
+                ("M-Up", "select-pane -U"),
+                ("M-Down", "select-pane -D"),
+            ]
+        else:
+            keybinds = [
+                ("M-Left", "previous-window"),
+                ("M-Right", "next-window"),
+            ]
+        for key, cmd in keybinds:
             subprocess.run(
-                ["tmux", "bind-key", flag, "-T", "root", key, cmd],
+                ["tmux", "bind-key", "-n", "-T", "root", key, cmd],
                 check=True,
             )
 
