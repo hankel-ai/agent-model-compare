@@ -61,7 +61,6 @@ def cmd_benchmark(args, config):
     monitor_handled = launcher.launch_subs(run_dir, models)
 
     for model in models:
-        from .config import is_claude_model
         route = "direct Anthropic API" if is_claude_model(model, config) else "via LiteLLM"
         console.print(f"  [cyan]{model}[/cyan] ({route})")
 
