@@ -4,14 +4,6 @@ claude_models:
   - sonnet
   - haiku
 
-# LiteLLM proxy for non-Claude models
-# Any model name not in claude_models is routed through LiteLLM.
-# Just use the name from your LiteLLM config: kimi-k2.5, gemini-flash, etc.
-# ANTHROPIC_AUTH_TOKEN defaults to LITELLM_MASTER_KEY from .env if not set here.
-litellm:
-  ANTHROPIC_BASE_URL: http://localhost:4000
-  ANTHROPIC_AUTH_TOKEN:
-
-env:
-  HTTPS_PROXY: http://localhost:9280
-  NODE_EXTRA_CA_CERTS: mitmproxy-ca.pem
+# LiteLLM proxy and extra environment variables are configured via .env
+# (see .env.example). All variables there are optional — if a variable is
+# unset or empty, the related feature is disabled.

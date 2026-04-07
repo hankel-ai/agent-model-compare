@@ -6,7 +6,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from .config import load_config
+from .config import get_litellm_config, is_claude_model, load_config
 from .launcher import PaneLauncher
 from .metrics import MetricsCollector
 from .monitor import WorkspaceMonitor
@@ -31,6 +31,16 @@ def cmd_benchmark(args, config):
     models = [m.strip() for m in args.models.split(",")]
     if len(models) < 1:
         console.print("[red]Error: provide at least one model[/red]")
+        sys.exit(1)
+
+    # If any non-Claude models are requested, LiteLLM must be configured.
+    non_claude = [m for m in models if not is_claude_model(m, config)]
+    if non_claude and not get_litellm_config().get("url"):
+        console.print(
+            f"[red]Error:[/red] model(s) {non_claude} require a LiteLLM proxy.\n"
+            "Set [cyan]LITELLM_BASE_URL[/cyan] (and [cyan]LITELLM_MASTER_KEY[/cyan] "
+            "if your proxy requires auth) in [cyan].env[/cyan] — see [cyan].env.example[/cyan]."
+        )
         sys.exit(1)
 
     # Resolve template path

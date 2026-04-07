@@ -7,6 +7,10 @@ Multi-model agent orchestrator that benchmarks AI models by giving them identica
 ```bash
 pip install pyyaml rich
 
+# (Optional) configure LiteLLM proxy and other env vars
+cp .env.example .env
+# edit .env — see "Configuration" below for what each var does
+
 # Windows
 python -m src.cli benchmark \
   --task "Build a Python CLI calculator with +,-,*,/ and unit tests" \
@@ -58,4 +62,18 @@ Use `--template` to specify a local directory whose contents are copied into a `
 
 ## Configuration
 
-Edit `config/models.yaml` to configure Claude models and LiteLLM proxy settings.
+`config/config.yaml` declares which model names are routed directly to the
+Anthropic API (`claude_models`). Anything not in that list is routed via
+LiteLLM.
+
+Everything else lives in `.env` (gitignored). Copy `.env.example` to `.env`
+and set whichever variables you need — all are optional. If a variable is
+unset or empty, the related feature is disabled.
+
+| Variable | Purpose |
+|---|---|
+| `LITELLM_BASE_URL` | Base URL of your LiteLLM proxy (e.g. `http://localhost:4000`). Required to use any non-Claude model. |
+| `LITELLM_MASTER_KEY` | Auth token for your LiteLLM proxy. |
+| `HTTPS_PROXY` | Outbound proxy injected into every agent subprocess. |
+| `NODE_EXTRA_CA_CERTS` | Extra CA bundle for Node-based tools (e.g. Claude Code CLI). Path can be absolute or relative to the project root. |
+| `NVIDIA_NIM_API_KEY` | Used by `list_models.py` only. |
