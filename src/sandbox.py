@@ -30,8 +30,14 @@ _PRIVATE_CIDRS = [
 
 
 def sandbox_name(run_name: str, model: str) -> str:
-    """Generate a deterministic sandbox name for a model in a run."""
-    return f"amc-{run_name}-{model}"
+    """Return the auto-generated sandbox name Docker will assign.
+
+    Docker sandbox names are ``claude-{workspace_basename}``.
+    The workspace basename is ``sub-{model}``, so the sandbox name is
+    ``claude-sub-{model}``.  Note: concurrent runs using the same model
+    will collide — stop the previous run's sandboxes first.
+    """
+    return f"claude-sub-{model}"
 
 
 def create_sandbox(name: str, workspace_path: Path) -> None:
@@ -39,7 +45,7 @@ def create_sandbox(name: str, workspace_path: Path) -> None:
 
     Raises RuntimeError if Docker is not available or creation fails.
     """
-    cmd = ["docker", "sandbox", "create", "claude", "--name", name, str(workspace_path)]
+    cmd = ["docker", "sandbox", "create", "claude", str(workspace_path)]
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except FileNotFoundError:
