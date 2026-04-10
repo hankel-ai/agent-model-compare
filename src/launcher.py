@@ -131,7 +131,7 @@ class PaneLauncher:
         env_str = " ".join(env_flags)
 
         exec_cmd = (
-            f"docker sandbox exec -it {env_str} {name} "
+            f'docker sandbox exec -it -w "{sub_dir}" {env_str} {name} '
             f'claude --model {model} --dangerously-skip-permissions "{INITIAL_PROMPT}"'
         )
 
@@ -334,7 +334,7 @@ class PaneLauncher:
         env_str = " ".join(env_flags)
 
         exec_cmd = (
-            f"docker sandbox exec -it {env_str} {name} "
+            f'docker sandbox exec -it -w "{sub_dir}" {env_str} {name} '
             f'claude --model {model} --dangerously-skip-permissions "{INITIAL_PROMPT}"'
         )
 
