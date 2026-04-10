@@ -15,9 +15,10 @@ Multi-model agent orchestrator that launches parallel Claude Code sessions in sp
 src/
   cli.py          - Entry point (argparse): benchmark, status, report commands
   config.py       - Load config/config.yaml
-  env.py          - Env configuration for subprocess launch (cmd.exe + bash)
+  env.py          - Env configuration for subprocess launch (cmd.exe + bash + docker sandbox)
   workspace.py    - Create run dirs + CLAUDE.md per sub, optional template copy
   launcher.py     - Launch split panes (WT on Windows, tmux on Linux/macOS)
+  sandbox.py      - Docker sandbox lifecycle (create, network config, stop, remove)
   monitor.py      - Watch workspaces for progress.json + DONE.md
   metrics.py      - Collect file-based metrics from completed workspaces
   report.py       - Generate markdown comparison report
@@ -33,6 +34,9 @@ run.sh            - Linux/macOS launcher script
 ```bash
 # Benchmark
 python -m src.cli benchmark --task "Build X" --models opus,sonnet,kimi-k2.5
+
+# With Docker sandboxes (each model runs in isolated Docker sandbox)
+python -m src.cli benchmark --task "Build X" --models opus,gemma-4-31b-it --sandbox
 
 # With a template folder (copied into each sub workspace)
 python -m src.cli benchmark --task "Add auth" --models opus,sonnet --template ./starter-app
@@ -60,3 +64,8 @@ python -m src.cli report --run <run-name>
 - Non-Claude models routed via ANTHROPIC_BASE_URL pointing to LiteLLM proxy
 - On Linux, launcher creates a named tmux session and attaches to it
 - Start scripts: `_start.cmd` (Windows) / `_start.sh` (Linux/macOS) per sub
+- `--sandbox` mode: creates Docker Desktop sandboxes per model, auto-configures networking for LiteLLM
+  - Requires Docker Desktop with sandbox support
+  - LITELLM_BASE_URL must use LAN IP (not localhost) in sandbox mode
+  - Sandbox proxy/cert env vars (HTTPS_PROXY, NODE_EXTRA_CA_CERTS) are excluded inside sandboxes
+  - `stop` command automatically removes sandboxes

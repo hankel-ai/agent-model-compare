@@ -1,6 +1,7 @@
 """CLI entry point for the agent orchestrator."""
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -55,9 +56,46 @@ def cmd_benchmark(args, config):
     for model in models:
         console.print(f"  {run_dir / f'sub-{model}'}")
 
+    # Create Docker sandboxes if requested
+    if args.sandbox:
+        from .sandbox import create_sandbox, configure_sandbox_network, sandbox_name as sb_name
+
+        litellm = get_litellm_config()
+        litellm_url = litellm.get("url")
+        sandbox_names = []
+
+        console.print(f"\n[bold]Creating Docker sandboxes...[/bold]")
+        created_names = []
+        try:
+            for model in models:
+                name = sb_name(run_dir.name, model)
+                sub_dir = run_dir / f"sub-{model}"
+                console.print(f"  [cyan]{name}[/cyan]...")
+                create_sandbox(name, sub_dir)
+                created_names.append(name)
+
+                if litellm_url and not is_claude_model(model, config):
+                    configure_sandbox_network(name, litellm_url)
+
+                sandbox_names.append(name)
+        except RuntimeError as e:
+            console.print(f"\n[red]Error: {e}[/red]")
+            if created_names:
+                from .sandbox import cleanup_sandboxes
+                console.print("[yellow]Cleaning up partially created sandboxes...[/yellow]")
+                cleanup_sandboxes(created_names)
+            sys.exit(1)
+
+        # Persist sandbox info in run config
+        cfg_path = run_dir / "config.json"
+        rc = json.loads(cfg_path.read_text())
+        rc["sandbox"] = True
+        rc["sandbox_names"] = sandbox_names
+        cfg_path.write_text(json.dumps(rc, indent=2))
+
     # Launch panes
     console.print(f"\n[bold]Launching {len(models)} Claude Code sessions...[/bold]")
-    launcher = PaneLauncher(config)
+    launcher = PaneLauncher(config, sandbox=getattr(args, "sandbox", False))
     monitor_handled = launcher.launch_subs(run_dir, models)
 
     for model in models:
@@ -140,6 +178,15 @@ def cmd_stop(args, config):
     else:
         console.print("[yellow]No running Claude Code instances found for this run.[/yellow]")
 
+    # Clean up Docker sandboxes if this was a sandbox run
+    run_config = ws.load_run_config(run_dir)
+    sandbox_names = run_config.get("sandbox_names", [])
+    if sandbox_names:
+        from .sandbox import cleanup_sandboxes
+        console.print(f"[bold]Removing Docker sandboxes...[/bold]")
+        cleaned = cleanup_sandboxes(sandbox_names)
+        console.print(f"[green]Removed {cleaned} sandbox(es).[/green]")
+
 
 def cmd_report(args, config):
     """Generate comparison report for a completed run."""
@@ -213,6 +260,7 @@ def main():
     bench.add_argument("--models", type=str, required=True, help="Comma-separated model names")
     bench.add_argument("--name", type=str, help="Run name (optional)")
     bench.add_argument("--template", type=str, help="Path to a local folder to copy into each sub workspace as starter files")
+    bench.add_argument("--sandbox", action="store_true", help="Run each model in a Docker sandbox")
 
     # status
     status = subparsers.add_parser("status", help="Check status of a run")

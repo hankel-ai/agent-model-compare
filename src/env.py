@@ -87,3 +87,36 @@ def build_bash_env_string(
             parts.append(f"export {key}={val}")
 
     return parts
+
+
+# Env vars that should NOT be passed into Docker sandboxes — the sandbox has
+# its own proxy, and host filesystem paths don't exist inside the container.
+_SANDBOX_EXCLUDED_VARS = {"HTTPS_PROXY", "HTTP_PROXY", "NODE_EXTRA_CA_CERTS"}
+
+
+def build_docker_env_flags(
+    *,
+    litellm_url: str | None = None,
+    litellm_key: str | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> list[str]:
+    """Build '-e KEY=VAL' flags for docker sandbox exec.
+
+    Returns a list of strings like ['-e', 'ANTHROPIC_BASE_URL=http://...', ...].
+    Excludes proxy/cert vars that conflict with sandbox networking.
+    """
+    parts = []
+
+    if litellm_url:
+        parts.extend(["-e", f"ANTHROPIC_BASE_URL={litellm_url}"])
+        parts.extend(["-e", "ANTHROPIC_API_KEY="])
+    if litellm_key:
+        parts.extend(["-e", f"ANTHROPIC_AUTH_TOKEN={litellm_key}"])
+
+    if extra_env:
+        for key, val in extra_env.items():
+            if key in _SANDBOX_EXCLUDED_VARS:
+                continue
+            parts.extend(["-e", f"{key}={val}"])
+
+    return parts

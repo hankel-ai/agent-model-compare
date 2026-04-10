@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from .config import get_extra_env, get_litellm_config, is_claude_model
-from .env import build_bash_env_string, build_cmd_env_string
+from .env import build_bash_env_string, build_cmd_env_string, build_docker_env_flags
 
 
 INITIAL_PROMPT = "Read the CLAUDE.md file in this directory and complete the task described there. Start working immediately."
@@ -17,8 +17,9 @@ def is_windows() -> bool:
 
 
 class PaneLauncher:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, sandbox: bool = False):
         self.config = config
+        self.sandbox = sandbox
 
     def launch_subs(self, run_dir: Path, models: list[str]) -> bool:
         """Launch all subs as split panes (WT on Windows, tmux on Linux/macOS).
@@ -84,6 +85,9 @@ class PaneLauncher:
 
     def _write_start_cmd(self, run_dir: Path, model: str) -> Path:
         """Write a _start.cmd batch file for a sub."""
+        if self.sandbox:
+            return self._write_sandbox_start_cmd(run_dir, model)
+
         sub_dir = run_dir / f"sub-{model}"
 
         litellm_url = None
@@ -102,6 +106,36 @@ class PaneLauncher:
         lines.append(f"cd /d {sub_dir}")
         lines.append(f'claude --model {model} --dangerously-skip-permissions "{INITIAL_PROMPT}"')
 
+        script_path = sub_dir / "_start.cmd"
+        script_path.write_text("\r\n".join(lines) + "\r\n")
+        return script_path
+
+    def _write_sandbox_start_cmd(self, run_dir: Path, model: str) -> Path:
+        """Write a _start.cmd that runs claude inside a Docker sandbox."""
+        from .sandbox import sandbox_name
+
+        sub_dir = run_dir / f"sub-{model}"
+        name = sandbox_name(run_dir.name, model)
+
+        litellm_url = None
+        litellm_key = None
+        if not is_claude_model(model, self.config):
+            litellm = get_litellm_config(self.config)
+            litellm_url = litellm.get("url")
+            litellm_key = litellm.get("key")
+
+        extra_env = get_extra_env(self.config)
+        env_flags = build_docker_env_flags(
+            litellm_url=litellm_url, litellm_key=litellm_key, extra_env=extra_env,
+        )
+        env_str = " ".join(env_flags)
+
+        exec_cmd = (
+            f"docker sandbox exec -it {env_str} {name} "
+            f'claude --model {model} --dangerously-skip-permissions "{INITIAL_PROMPT}"'
+        )
+
+        lines = ["@echo off", exec_cmd]
         script_path = sub_dir / "_start.cmd"
         script_path.write_text("\r\n".join(lines) + "\r\n")
         return script_path
@@ -254,6 +288,9 @@ class PaneLauncher:
 
     def _write_start_sh(self, run_dir: Path, model: str) -> Path:
         """Write a _start.sh bash script for a sub."""
+        if self.sandbox:
+            return self._write_sandbox_start_sh(run_dir, model)
+
         sub_dir = run_dir / f"sub-{model}"
 
         litellm_url = None
@@ -271,6 +308,37 @@ class PaneLauncher:
         lines.append(f'cd "{sub_dir}"')
         lines.append(f'claude --model {model} --dangerously-skip-permissions "{INITIAL_PROMPT}"')
 
+        script_path = sub_dir / "_start.sh"
+        script_path.write_text("\n".join(lines) + "\n")
+        script_path.chmod(0o755)
+        return script_path
+
+    def _write_sandbox_start_sh(self, run_dir: Path, model: str) -> Path:
+        """Write a _start.sh that runs claude inside a Docker sandbox."""
+        from .sandbox import sandbox_name
+
+        sub_dir = run_dir / f"sub-{model}"
+        name = sandbox_name(run_dir.name, model)
+
+        litellm_url = None
+        litellm_key = None
+        if not is_claude_model(model, self.config):
+            litellm = get_litellm_config(self.config)
+            litellm_url = litellm.get("url")
+            litellm_key = litellm.get("key")
+
+        extra_env = get_extra_env(self.config)
+        env_flags = build_docker_env_flags(
+            litellm_url=litellm_url, litellm_key=litellm_key, extra_env=extra_env,
+        )
+        env_str = " ".join(env_flags)
+
+        exec_cmd = (
+            f"docker sandbox exec -it {env_str} {name} "
+            f'claude --model {model} --dangerously-skip-permissions "{INITIAL_PROMPT}"'
+        )
+
+        lines = ["#!/usr/bin/env bash", "set -e", exec_cmd]
         script_path = sub_dir / "_start.sh"
         script_path.write_text("\n".join(lines) + "\n")
         script_path.chmod(0o755)
