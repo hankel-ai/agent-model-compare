@@ -116,6 +116,14 @@ def cmd_benchmark(args, config):
     if monitor.all_done():
         _generate_report(run_dir, models)
 
+        # Remind user to clean up sandboxes
+        if args.sandbox:
+            console.print(
+                f"\n[yellow]Sandboxes are still running.[/yellow] "
+                f"Clean up with:\n"
+                f"  [cyan]python -m src.cli stop --run {run_dir.name}[/cyan]"
+            )
+
 
 def cmd_status(args, config):
     """Show status of a running or completed benchmark."""

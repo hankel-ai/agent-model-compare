@@ -12,6 +12,15 @@ from .env import build_bash_env_string, build_cmd_env_string, build_docker_env_f
 INITIAL_PROMPT = "Read the CLAUDE.md file in this directory and complete the task described there. Start working immediately."
 
 
+def _container_path(p: Path) -> str:
+    """Convert a host path to a container-absolute path for docker sandbox -w."""
+    s = str(p).replace("\\", "/")
+    # Windows: C:/Users/... → /c/Users/...
+    if len(s) >= 2 and s[1] == ":":
+        return "/" + s[0].lower() + s[2:]
+    return s
+
+
 def is_windows() -> bool:
     return sys.platform == "win32"
 
@@ -37,7 +46,7 @@ class PaneLauncher:
     # ── Windows Terminal ─────────────────────────────────────────────────
 
     def _launch_wt(self, run_dir: Path, models: list[str]) -> None:
-        """Launch subs as Windows Terminal split panes.
+        """Launch subs as Windows Terminal split panes in the current tab.
 
         Writes a _start.cmd batch file per sub to avoid quoting issues,
         then uses sequential wt.exe calls to build the pane layout.
@@ -130,8 +139,9 @@ class PaneLauncher:
         )
         env_str = " ".join(env_flags)
 
+        workdir = _container_path(sub_dir)
         exec_cmd = (
-            f'docker sandbox exec -it -w "{sub_dir}" {env_str} {name} '
+            f'docker sandbox exec -it -w "{workdir}" {env_str} {name} '
             f'claude --model {model} --dangerously-skip-permissions "{INITIAL_PROMPT}"'
         )
 
@@ -140,13 +150,33 @@ class PaneLauncher:
         script_path.write_text("\r\n".join(lines) + "\r\n")
         return script_path
 
+    @staticmethod
+    def _reclaim_foreground() -> None:
+        """Bring this console window to foreground so wt.exe -w 0 targets it.
+
+        Docker Desktop can steal focus during sandbox creation, causing
+        subsequent wt.exe -w 0 split-pane calls to land in the wrong window.
+        The Alt-key trick temporarily grants SetForegroundWindow permission.
+        """
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            user32.keybd_event(0x12, 0, 0, 0)   # Alt down
+            user32.keybd_event(0x12, 0, 2, 0)   # Alt up
+            user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+
     def _wt_action(self, *args: str) -> None:
         """Run a single wt.exe action (e.g., move-focus)."""
+        self._reclaim_foreground()
         cmd = "wt.exe -w 0 " + " ".join(args)
         subprocess.Popen(cmd, shell=True)
 
     def _wt_split(self, direction: str, model: str, run_dir: Path) -> None:
         """Run a single wt.exe split-pane command."""
+        self._reclaim_foreground()
         sub_dir = run_dir / f"sub-{model}"
         script = sub_dir / "_start.cmd"
         cmd = (
@@ -333,8 +363,9 @@ class PaneLauncher:
         )
         env_str = " ".join(env_flags)
 
+        workdir = _container_path(sub_dir)
         exec_cmd = (
-            f'docker sandbox exec -it -w "{sub_dir}" {env_str} {name} '
+            f'docker sandbox exec -it -w "{workdir}" {env_str} {name} '
             f'claude --model {model} --dangerously-skip-permissions "{INITIAL_PROMPT}"'
         )
 
