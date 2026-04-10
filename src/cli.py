@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.console import Console
 
 from .config import get_litellm_config, is_claude_model, load_config
-from .launcher import PaneLauncher
+from .launcher import PaneLauncher, stop_subs
 from .metrics import MetricsCollector
 from .monitor import WorkspaceMonitor
 from .report import save_report
@@ -116,6 +116,31 @@ def cmd_status(args, config):
             console.print(f"Run [cyan]python -m src.cli report --run {run_dir.name}[/cyan] for the report.")
 
 
+def cmd_stop(args, config):
+    """Stop all Claude Code instances for a run."""
+    ws = WorkspaceManager()
+
+    if args.run:
+        run_dir = ws.find_run(args.run)
+        if not run_dir:
+            console.print(f"[red]Run not found: {args.run}[/red]")
+            sys.exit(1)
+    else:
+        runs = ws.list_runs()
+        if not runs:
+            console.print("[yellow]No runs found.[/yellow]")
+            return
+        run_dir = runs[0]
+
+    console.print(f"[bold]Stopping subs for:[/bold] {run_dir.name}")
+    killed = stop_subs(run_dir)
+
+    if killed:
+        console.print(f"[green]Stopped {killed} Claude Code instance(s).[/green]")
+    else:
+        console.print("[yellow]No running Claude Code instances found for this run.[/yellow]")
+
+
 def cmd_report(args, config):
     """Generate comparison report for a completed run."""
     ws = WorkspaceManager()
@@ -194,6 +219,10 @@ def main():
     status.add_argument("--run", type=str, help="Run name (partial match, default: latest)")
     status.add_argument("--watch", "-w", action="store_true", help="Continuously watch status")
 
+    # stop
+    stop = subparsers.add_parser("stop", help="Stop all Claude Code instances for a run")
+    stop.add_argument("--run", type=str, help="Run name (partial match, default: latest)")
+
     # report
     report = subparsers.add_parser("report", help="Generate comparison report")
     report.add_argument("--run", type=str, required=True, help="Run name (partial match)")
@@ -213,6 +242,8 @@ def main():
         cmd_benchmark(args, config)
     elif args.command == "status":
         cmd_status(args, config)
+    elif args.command == "stop":
+        cmd_stop(args, config)
     elif args.command == "report":
         cmd_report(args, config)
     elif args.command == "list":

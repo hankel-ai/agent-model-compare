@@ -114,4 +114,5 @@ class WorkspaceMonitor:
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Monitoring stopped. Subs are still running in their panes.[/yellow]")
-            console.print(f"Resume monitoring: [cyan]python -m src.cli status --run {self.run_dir.name}[/cyan]\n")
+            console.print(f"Resume monitoring: [cyan]python -m src.cli status --run {self.run_dir.name}[/cyan]")
+            console.print(f"Stop all subs:     [cyan]python -m src.cli stop --run {self.run_dir.name}[/cyan]\n")

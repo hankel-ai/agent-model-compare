@@ -276,6 +276,88 @@ class PaneLauncher:
         script_path.chmod(0o755)
         return script_path
 
+    # ── tmux stop ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _stop_tmux(session: str) -> int:
+        """Kill all non-monitor panes/windows in a tmux session.
+
+        Returns the number of panes killed.
+        """
+        # Check if session exists
+        result = subprocess.run(
+            ["tmux", "has-session", "-t", session],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            return 0
+
+        # List all panes: "window_index:pane_index"
+        result = subprocess.run(
+            ["tmux", "list-panes", "-s", "-t", session,
+             "-F", "#{window_index}:#{pane_index}"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return 0
+
+        panes = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+
+        killed = 0
+        # Reverse order avoids index renumbering issues
+        for pane_id in reversed(panes):
+            if pane_id == "0:0":
+                continue
+            w, p = pane_id.split(":")
+            subprocess.run(
+                ["tmux", "kill-pane", "-t", f"{session}:{w}.{p}"],
+                capture_output=True,
+            )
+            killed += 1
+
+        return killed
+
+    # ── Windows stop ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _stop_windows(run_dir: Path) -> int:
+        """Kill Claude Code process trees for this run on Windows.
+
+        Finds cmd.exe processes whose command line contains the run directory
+        name and _start.cmd, then kills each process tree.
+
+        Returns the number of processes killed.
+        """
+        run_name = run_dir.name
+        wmic_filter = (
+            f"commandline like '%{run_name}%' "
+            f"and commandline like '%_start.cmd%'"
+        )
+        result = subprocess.run(
+            ["wmic", "process", "where", wmic_filter,
+             "get", "processid", "/format:list"],
+            capture_output=True, text=True, shell=True,
+        )
+
+        pids = []
+        for line in result.stdout.strip().split("\n"):
+            line = line.strip()
+            if line.startswith("ProcessId="):
+                pid = line.split("=", 1)[1].strip()
+                if pid:
+                    pids.append(pid)
+
+        killed = 0
+        for pid in pids:
+            r = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", pid],
+                capture_output=True,
+            )
+            if r.returncode == 0:
+                killed += 1
+
+        return killed
+
     def _tmux_split(
         self,
         session: str,
@@ -295,3 +377,17 @@ class PaneLauncher:
         cmd = ["tmux", "split-window", direction, "-t", target, str(script)]
 
         subprocess.run(cmd, check=True)
+
+
+def stop_subs(run_dir: Path) -> int:
+    """Stop all Claude Code instances for a run.
+
+    On tmux: kills all non-monitor panes in the session.
+    On Windows: finds and kills cmd.exe process trees for _start.cmd scripts.
+
+    Returns the number of processes/panes killed.
+    """
+    if is_windows():
+        return PaneLauncher._stop_windows(run_dir)
+    else:
+        return PaneLauncher._stop_tmux(run_dir.name)

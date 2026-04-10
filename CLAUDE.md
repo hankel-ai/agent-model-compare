@@ -40,6 +40,10 @@ python -m src.cli benchmark --task "Add auth" --models opus,sonnet --template ./
 # Check status
 python -m src.cli status
 
+# Stop all Claude Code instances for a run
+python -m src.cli stop                  # latest run
+python -m src.cli stop --run <run-name> # specific run
+
 # Generate report
 python -m src.cli report --run <run-name>
 ```
